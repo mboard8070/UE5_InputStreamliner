@@ -1,0 +1,98 @@
+# Unreal Engine 5 .gitignore
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Unreal Engine
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+*.VC.db
+*.VC.opendb
+
+# Unreal Engine - Compiled source files
+*.generated.h
+*.gen.cpp
+
+# Unreal Engine - Asset files that should be ignored
+# (uncomment if you want to ignore all assets, but typically you want these)
+# Content/
+
+# Cache files
+*.obb
+*.apk
+*.aab
+
+# Crashlytics
+crashlytics.properties
+crashlytics-build.properties
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# Backup files
+*.bak
+*.backup
+
+# Log files
+*.log
+
+# Local environment files
+.env
+.env.local
+
+# JetBrains Rider
+.idea/
+
+# Visual Studio Code
+.vscode/
+
+# Encryption key - NEVER commit this
+*.crypto.json
