@@ -1,0 +1,35 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Input Streamliner",
+	"Description": "AI-powered multiplatform input configuration tool for Unreal Engine",
+	"Category": "Editor",
+	"CreatedBy": "Your Name",
+	"CreatedByURL": "https://github.com/mboard8070/UE5_InputStreamliner",
+	"DocsURL": "https://github.com/mboard8070/UE5_InputStreamliner/blob/main/docs/README.md",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/mboard8070/UE5_InputStreamliner/issues",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "InputStreamliner",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "InputStreamlinerRuntime",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		}
+	]
+}
