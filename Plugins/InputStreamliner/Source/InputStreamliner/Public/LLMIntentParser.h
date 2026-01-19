@@ -89,7 +89,7 @@ private:
 	int32 EndpointPort = 11434;
 
 	UPROPERTY()
-	FString ModelName = TEXT("nemotron:8b");
+	FString ModelName = TEXT("llama3.2:3b-instruct-q3_k_m");
 
 	UPROPERTY()
 	FInputStreamlinerConfiguration LastParsedConfig;

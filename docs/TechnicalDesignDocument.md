@@ -1599,7 +1599,7 @@ Plugins/InputStreamliner/
 | Unreal Engine | 5.3+ | Core platform |
 | Enhanced Input Plugin | (bundled) | Input system |
 | Ollama | Latest | Local LLM inference |
-| Nemotron 8B | Latest | Language model |
+| Llama 3.2 3B | Latest | Language model (default) |
 
 ---
 

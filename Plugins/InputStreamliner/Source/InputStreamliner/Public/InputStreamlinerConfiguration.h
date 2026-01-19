@@ -91,7 +91,7 @@ struct INPUTSTREAMLINER_API FInputStreamlinerConfiguration
 
 	/** Model name to use */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM")
-	FString LLMModelName = TEXT("nemotron:8b");
+	FString LLMModelName = TEXT("llama3.2:3b-instruct-q3_k_m");
 
 	FInputStreamlinerConfiguration()
 		: ProjectPrefix(TEXT("Game"))
@@ -105,7 +105,7 @@ struct INPUTSTREAMLINER_API FInputStreamlinerConfiguration
 		, GeneratedCodePath(TEXT("Input"))
 		, LLMEndpointURL(TEXT("http://localhost"))
 		, LLMEndpointPort(11434)
-		, LLMModelName(TEXT("nemotron:8b"))
+		, LLMModelName(TEXT("llama3.2:3b-instruct-q3_k_m"))
 	{
 	}
 
