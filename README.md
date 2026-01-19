@@ -140,13 +140,77 @@ The plugin includes a complete runtime rebinding system (`UInputRebindingManager
 - **Sensitivity Settings** - Mouse, gamepad, and gyroscope sensitivity with invert Y option
 - **Blueprint Exposed** - All functions callable from Blueprints for easy UI integration
 
+### Rebinding Settings Widget
+
+The plugin includes a ready-to-use settings UI widget (`URebindingSettingsWidget`) that you can add to your game's options menu:
+
+**Features:**
+- Lists all registered actions with current key bindings
+- "Rebind" button shows "Press Key..." during capture
+- Per-action and "Reset All" buttons
+- Mouse/Gamepad sensitivity sliders (0.1 - 5.0)
+- Invert Y axis checkbox
+- Save/Cancel buttons
+- Conflict detection with status messages
+
+**Usage in C++:**
+
 ```cpp
-// Example: Start rebinding an action
+// In your game's pause menu or settings screen
+#include "RebindingSettingsWidget.h"
+
+void UMyGameMenu::OpenInputSettings()
+{
+    // Create the settings widget
+    URebindingSettingsWidget* Settings = CreateWidget<URebindingSettingsWidget>(GetWorld(), URebindingSettingsWidget::StaticClass());
+
+    // Set the mapping context that will be modified at runtime
+    Settings->SetMappingContext(MyInputMappingContext);
+
+    // Register actions players can rebind (action + default key)
+    Settings->RegisterAction(IA_Jump, { EKeys::SpaceBar });
+    Settings->RegisterAction(IA_Shoot, { EKeys::LeftMouseButton });
+    Settings->RegisterAction(IA_Reload, { EKeys::R });
+    Settings->RegisterAction(IA_Sprint, { EKeys::LeftShift });
+    Settings->RegisterAction(IA_Interact, { EKeys::E });
+
+    // Add to viewport
+    Settings->AddToViewport();
+}
+```
+
+**Usage in Blueprints:**
+
+1. Create a Widget Blueprint based on `URebindingSettingsWidget`
+2. In your game's pause menu, create the widget and call:
+   - `Set Mapping Context` - Pass your Input Mapping Context
+   - `Register Action` - For each rebindable action
+   - `Add to Viewport`
+
+**Low-Level API (for custom UI):**
+
+If you prefer to build your own settings UI, use `UInputRebindingManager` directly:
+
+```cpp
 UInputRebindingManager* Manager = GetGameInstance()->GetSubsystem<UInputRebindingManager>();
+
+// Start listening for a new key
 Manager->StartRebinding(MyInputAction);
 
-// Listen for completion
-Manager->OnRebindComplete.AddDynamic(this, &UMyWidget::OnRebindFinished);
+// Listen for events
+Manager->OnRebindComplete.AddDynamic(this, &UMyWidget::OnKeyRebound);
+Manager->OnBindingConflict.AddDynamic(this, &UMyWidget::OnConflict);
+Manager->OnAnyKeyPressed.AddDynamic(this, &UMyWidget::OnKeyPressed);
+
+// Manual binding management
+Manager->ApplyBinding(Action, NewKey, 0);
+Manager->RemoveBinding(Action, 0);
+Manager->ResetToDefault(Action);
+Manager->ResetAllToDefaults();
+
+// Persistence
+Manager->SaveBindings();
+Manager->LoadBindings();
 ```
 
 ## Configuration
@@ -176,7 +240,7 @@ Default LLM settings (can be modified in `InputStreamlinerConfiguration`):
 ```
 Plugins/InputStreamliner/
 ├── Source/
-│   ├── InputStreamliner/           # Editor module
+│   ├── InputStreamliner/           # Editor module (AI generation)
 │   │   ├── Public/
 │   │   │   ├── InputStreamlinerWidget.h
 │   │   │   ├── LLMIntentParser.h
@@ -184,11 +248,13 @@ Plugins/InputStreamliner/
 │   │   │   └── ...
 │   │   └── Private/
 │   │       └── ...
-│   └── InputStreamlinerRuntime/    # Runtime module
+│   └── InputStreamlinerRuntime/    # Runtime module (player rebinding)
 │       ├── Public/
-│       │   └── InputRebindingManager.h
+│       │   ├── InputRebindingManager.h   # Rebinding backend/subsystem
+│       │   └── RebindingSettingsWidget.h # Ready-to-use settings UI
 │       └── Private/
-│           └── InputRebindingManager.cpp
+│           ├── InputRebindingManager.cpp
+│           └── RebindingSettingsWidget.cpp
 └── Content/
     └── EUW_StreamlineInput.uasset
 ```
