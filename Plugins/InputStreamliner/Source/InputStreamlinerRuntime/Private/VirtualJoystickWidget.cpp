@@ -8,7 +8,7 @@
 UVirtualJoystickWidget::UVirtualJoystickWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	bIsFocusable = false;
+	SetIsFocusable(false);
 }
 
 void UVirtualJoystickWidget::ResetToCenter()

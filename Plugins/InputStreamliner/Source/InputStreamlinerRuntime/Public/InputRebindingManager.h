@@ -207,12 +207,10 @@ private:
 	/** Index of the binding being changed */
 	int32 PendingBindingIndex = 0;
 
-	/** Stored default bindings for reset functionality */
-	UPROPERTY(Transient)
+	/** Stored default bindings for reset functionality (not UPROPERTY - TMap<TArray> not supported) */
 	TMap<TObjectPtr<UInputAction>, TArray<FKey>> DefaultBindings;
 
-	/** Current custom bindings */
-	UPROPERTY(Transient)
+	/** Current custom bindings (not UPROPERTY - TMap<TArray> not supported) */
 	TMap<TObjectPtr<UInputAction>, TArray<FKey>> CurrentBindings;
 
 	/** Save data */
