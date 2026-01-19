@@ -6,6 +6,17 @@ An Unreal Engine 5.7 editor plugin that dramatically simplifies multiplatform in
 
 Input Streamliner allows developers to generate complete input systems—including Enhanced Input Actions, Input Mapping Contexts, platform-specific bindings, and mobile touch controls—in minutes rather than hours.
 
+### Why Input Streamliner?
+
+**Input Streamliner is the only tool of its kind.** While there are several AI-powered plugins for Unreal Engine (like TotalAI, ClaudeAI Plugin, and UnrealGenAISupport), they focus on general Blueprint generation, C++ assistance, or scene creation. None offer a turnkey solution for input system generation.
+
+Other approaches require you to either:
+- Manually create dozens of Input Actions and Mapping Contexts by hand
+- Write custom prompts for general-purpose AI tools and hope the output is correct
+- Follow lengthy tutorials to set up Enhanced Input from scratch
+
+Input Streamliner is purpose-built for one thing: **describe your controls in plain English, get a complete, correctly-configured input system.**
+
 ### Key Features
 
 - **Natural Language Input Definition** - Describe your input needs conversationally and receive a complete, correctly-configured input system
@@ -14,6 +25,7 @@ Input Streamliner allows developers to generate complete input systems—includi
 - **Advanced Input Settings** - Auto-configured DeadZones, triggers (Hold, Tap, DoubleTap, Released), and axis modifiers
 - **Model Selection** - Choose from any locally installed Ollama model via dropdown
 - **Asset Management** - Generate and delete input assets with one click
+- **Runtime Rebinding** - Built-in player key rebinding system with persistence
 
 ## Requirements
 
@@ -118,6 +130,25 @@ Separate Input Mapping Contexts are generated for each platform:
 - `IMC_Android` - Android touch control references
 - `IMC_Mac` - Mac keyboard/mouse bindings
 
+### Runtime Key Rebinding
+
+The plugin includes a complete runtime rebinding system (`UInputRebindingManager`) that allows players to customize their controls:
+
+- **Input Capture** - Captures keyboard, gamepad, mouse buttons, and scroll wheel
+- **Conflict Detection** - Warns when a key is already bound to another action
+- **JSON Persistence** - Saves custom bindings to `Saved/InputStreamliner/Bindings.json`
+- **Sensitivity Settings** - Mouse, gamepad, and gyroscope sensitivity with invert Y option
+- **Blueprint Exposed** - All functions callable from Blueprints for easy UI integration
+
+```cpp
+// Example: Start rebinding an action
+UInputRebindingManager* Manager = GetGameInstance()->GetSubsystem<UInputRebindingManager>();
+Manager->StartRebinding(MyInputAction);
+
+// Listen for completion
+Manager->OnRebindComplete.AddDynamic(this, &UMyWidget::OnRebindFinished);
+```
+
 ## Configuration
 
 Default LLM settings (can be modified in `InputStreamlinerConfiguration`):
@@ -145,7 +176,7 @@ Default LLM settings (can be modified in `InputStreamlinerConfiguration`):
 ```
 Plugins/InputStreamliner/
 ├── Source/
-│   ├── InputStreamliner/        # Editor module
+│   ├── InputStreamliner/           # Editor module
 │   │   ├── Public/
 │   │   │   ├── InputStreamlinerWidget.h
 │   │   │   ├── LLMIntentParser.h
@@ -153,8 +184,11 @@ Plugins/InputStreamliner/
 │   │   │   └── ...
 │   │   └── Private/
 │   │       └── ...
-│   └── InputStreamlinerRuntime/  # Runtime module
-│       └── ...
+│   └── InputStreamlinerRuntime/    # Runtime module
+│       ├── Public/
+│       │   └── InputRebindingManager.h
+│       └── Private/
+│           └── InputRebindingManager.cpp
 └── Content/
     └── EUW_StreamlineInput.uasset
 ```
