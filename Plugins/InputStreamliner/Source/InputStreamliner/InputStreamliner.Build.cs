@@ -18,7 +18,8 @@ public class InputStreamliner : ModuleRules
 			"UMG",
 			"Slate",
 			"SlateCore",
-			"InputStreamlinerRuntime"
+			"InputStreamlinerRuntime",
+			"ApplicationCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

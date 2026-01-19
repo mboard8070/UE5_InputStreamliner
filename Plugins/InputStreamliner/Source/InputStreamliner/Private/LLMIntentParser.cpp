@@ -155,17 +155,67 @@ FString ULLMIntentParser::BuildPrompt(const FString& UserDescription) const
 
 bool ULLMIntentParser::ParseJSONResponse(const FString& JSONString, FString& OutError)
 {
-	// Find the JSON object in the response (LLM might add extra text)
-	int32 StartIndex = JSONString.Find(TEXT("{"));
-	int32 EndIndex = JSONString.Find(TEXT("}"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+	FString WorkingString = JSONString;
 
-	if (StartIndex == INDEX_NONE || EndIndex == INDEX_NONE || EndIndex < StartIndex)
+	// Remove markdown code blocks if present
+	if (WorkingString.Contains(TEXT("```json")))
 	{
-		OutError = TEXT("No valid JSON found in response");
+		int32 Start = WorkingString.Find(TEXT("```json"));
+		int32 End = WorkingString.Find(TEXT("```"), ESearchCase::IgnoreCase, ESearchDir::FromStart, Start + 7);
+		if (Start != INDEX_NONE && End != INDEX_NONE)
+		{
+			WorkingString = WorkingString.Mid(Start + 7, End - Start - 7);
+		}
+	}
+	else if (WorkingString.Contains(TEXT("```")))
+	{
+		int32 Start = WorkingString.Find(TEXT("```"));
+		int32 End = WorkingString.Find(TEXT("```"), ESearchCase::IgnoreCase, ESearchDir::FromStart, Start + 3);
+		if (Start != INDEX_NONE && End != INDEX_NONE)
+		{
+			WorkingString = WorkingString.Mid(Start + 3, End - Start - 3);
+		}
+	}
+
+	// Find matching braces for proper JSON extraction
+	int32 StartIndex = WorkingString.Find(TEXT("{"));
+	if (StartIndex == INDEX_NONE)
+	{
+		OutError = TEXT("No JSON object found in response");
+		UE_LOG(LogInputStreamliner, Error, TEXT("LLM Response: %s"), *JSONString);
 		return false;
 	}
 
-	FString CleanJSON = JSONString.Mid(StartIndex, EndIndex - StartIndex + 1);
+	// Count braces to find the matching closing brace
+	int32 BraceCount = 0;
+	int32 EndIndex = INDEX_NONE;
+	for (int32 i = StartIndex; i < WorkingString.Len(); i++)
+	{
+		TCHAR c = WorkingString[i];
+		if (c == TEXT('{'))
+		{
+			BraceCount++;
+		}
+		else if (c == TEXT('}'))
+		{
+			BraceCount--;
+			if (BraceCount == 0)
+			{
+				EndIndex = i;
+				break;
+			}
+		}
+	}
+
+	if (EndIndex == INDEX_NONE)
+	{
+		OutError = TEXT("Unmatched braces in JSON response");
+		UE_LOG(LogInputStreamliner, Error, TEXT("LLM Response: %s"), *JSONString);
+		return false;
+	}
+
+	FString CleanJSON = WorkingString.Mid(StartIndex, EndIndex - StartIndex + 1);
+	UE_LOG(LogInputStreamliner, Log, TEXT("Extracted JSON: %s"), *CleanJSON.Left(500));
 
 	// Parse JSON
 	TSharedPtr<FJsonObject> JsonObject;

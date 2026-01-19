@@ -212,8 +212,22 @@ bool UInputAssetGenerator::DoesAssetExist(const FString& AssetPath) const
 
 void UInputAssetGenerator::ConfigureActionTriggers(UInputAction* Action, const FInputActionDefinition& Definition)
 {
-	// Default triggers are typically fine, but we can add specific ones based on the definition
-	// For now, we'll let the mapping context handle triggers
+	if (!Action)
+	{
+		return;
+	}
+
+	// Set consume input - most actions should consume
+	Action->bConsumeInput = true;
+
+	// Set trigger when paused - usually false for gameplay, true for UI
+	Action->bTriggerWhenPaused = Definition.Category.Equals(TEXT("UI"), ESearchCase::IgnoreCase);
+
+	// Set accumulation behavior for axis inputs
+	if (Definition.ActionType == EInputActionType::Axis2D || Definition.ActionType == EInputActionType::Axis1D)
+	{
+		Action->AccumulationBehavior = EInputActionAccumulationBehavior::Cumulative;
+	}
 }
 
 void UInputAssetGenerator::AddMappingToContext(
@@ -235,13 +249,30 @@ void UInputAssetGenerator::AddMappingToContext(
 	case EInputTriggerType::Hold:
 		{
 			UInputTriggerHold* HoldTrigger = NewObject<UInputTriggerHold>(Context);
+			HoldTrigger->HoldTimeThreshold = 0.2f;
 			Mapping.Triggers.Add(HoldTrigger);
 		}
 		break;
 	case EInputTriggerType::Tap:
 		{
 			UInputTriggerTap* TapTrigger = NewObject<UInputTriggerTap>(Context);
+			TapTrigger->TapReleaseTimeThreshold = 0.2f;
 			Mapping.Triggers.Add(TapTrigger);
+		}
+		break;
+	case EInputTriggerType::DoubleTap:
+		{
+			// Double tap uses tap trigger with combo - create two tap triggers
+			UInputTriggerTap* TapTrigger = NewObject<UInputTriggerTap>(Context);
+			TapTrigger->TapReleaseTimeThreshold = 0.15f;
+			Mapping.Triggers.Add(TapTrigger);
+			// Note: True double-tap requires custom trigger or combo system
+		}
+		break;
+	case EInputTriggerType::Released:
+		{
+			UInputTriggerReleased* ReleasedTrigger = NewObject<UInputTriggerReleased>(Context);
+			Mapping.Triggers.Add(ReleasedTrigger);
 		}
 		break;
 	case EInputTriggerType::Pressed:
@@ -253,11 +284,45 @@ void UInputAssetGenerator::AddMappingToContext(
 		break;
 	}
 
+	// Check if this is a gamepad stick - add DeadZone
+	FString KeyName = Binding.Key.GetFName().ToString();
+	bool bIsGamepadStick = KeyName.Contains(TEXT("Gamepad_Left")) || KeyName.Contains(TEXT("Gamepad_Right"));
+	bool bIsStickAxis = KeyName.Contains(TEXT("Stick")) || KeyName.Contains(TEXT("_X")) || KeyName.Contains(TEXT("_Y"));
+
+	if (bIsGamepadStick || (bIsGamepadStick && bIsStickAxis))
+	{
+		UInputModifierDeadZone* DeadZone = NewObject<UInputModifierDeadZone>(Context);
+		DeadZone->LowerThreshold = 0.2f;
+		DeadZone->UpperThreshold = 1.0f;
+		DeadZone->Type = EDeadZoneType::Radial;
+		Mapping.Modifiers.Add(DeadZone);
+	}
+
+	// Check if this is a gamepad trigger - add DeadZone with different settings
+	if (KeyName.Contains(TEXT("Trigger")))
+	{
+		UInputModifierDeadZone* DeadZone = NewObject<UInputModifierDeadZone>(Context);
+		DeadZone->LowerThreshold = 0.1f;
+		DeadZone->UpperThreshold = 1.0f;
+		DeadZone->Type = EDeadZoneType::Axial;
+		Mapping.Modifiers.Add(DeadZone);
+	}
+
+	// Add chorded action for modifier keys (Shift, Ctrl, Alt)
+	for (const FKey& ModifierKey : Binding.Modifiers)
+	{
+		if (ModifierKey.IsValid())
+		{
+			UInputTriggerChordAction* ChordTrigger = NewObject<UInputTriggerChordAction>(Context);
+			// Find or create a chord action for the modifier key
+			// For now, we'll skip chord implementation as it requires separate actions
+			UE_LOG(LogInputStreamliner, Log, TEXT("Modifier key %s specified but chord actions require separate setup"), *ModifierKey.GetFName().ToString());
+		}
+	}
+
 	// Add axis modifiers if this is an axis mapping
 	if (!Binding.AxisMapping.IsEmpty() && ActionDef.ActionType == EInputActionType::Axis2D)
 	{
-		UInputModifierSwizzleAxis* Swizzle = NewObject<UInputModifierSwizzleAxis>(Context);
-
 		if (Binding.AxisMapping.Contains(TEXT("X")))
 		{
 			if (Binding.AxisMapping.Contains(TEXT("-")))
@@ -268,6 +333,7 @@ void UInputAssetGenerator::AddMappingToContext(
 		}
 		else if (Binding.AxisMapping.Contains(TEXT("Y")))
 		{
+			UInputModifierSwizzleAxis* Swizzle = NewObject<UInputModifierSwizzleAxis>(Context);
 			Swizzle->Order = EInputAxisSwizzle::YXZ;
 			Mapping.Modifiers.Add(Swizzle);
 
@@ -276,6 +342,16 @@ void UInputAssetGenerator::AddMappingToContext(
 				UInputModifierNegate* Negate = NewObject<UInputModifierNegate>(Context);
 				Mapping.Modifiers.Add(Negate);
 			}
+		}
+	}
+
+	// For Axis1D actions with keyboard keys, add scalar to convert bool to axis
+	if (ActionDef.ActionType == EInputActionType::Axis1D && !bIsGamepadStick)
+	{
+		if (Binding.AxisMapping.Contains(TEXT("-")))
+		{
+			UInputModifierNegate* Negate = NewObject<UInputModifierNegate>(Context);
+			Mapping.Modifiers.Add(Negate);
 		}
 	}
 }
