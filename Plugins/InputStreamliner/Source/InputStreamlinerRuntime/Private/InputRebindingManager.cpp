@@ -10,6 +10,8 @@
 #include "Framework/Application/SlateApplication.h"
 #include "JsonObjectConverter.h"
 #include "Misc/FileHelper.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/GameInstance.h"
 
 void UInputRebindingManager::Initialize(FSubsystemCollectionBase& Collection)
 {
