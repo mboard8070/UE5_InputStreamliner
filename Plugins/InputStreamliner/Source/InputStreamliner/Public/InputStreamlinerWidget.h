@@ -311,7 +311,7 @@ protected:
 	// ==================== UI Elements ====================
 
 	/** Container from Blueprint - add a VerticalBox named "ContentContainer" in the Blueprint designer */
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	UPROPERTY(BlueprintReadOnly, Category = "UI", meta = (BindWidgetOptional))
 	TObjectPtr<UVerticalBox> ContentContainer;
 
 	UPROPERTY()

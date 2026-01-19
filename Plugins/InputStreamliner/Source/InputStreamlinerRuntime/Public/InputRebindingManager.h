@@ -5,7 +5,11 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "InputAction.h"
+#include "Framework/Application/IInputProcessor.h"
 #include "InputRebindingManager.generated.h"
+
+class UEnhancedInputLocalPlayerSubsystem;
+class UInputMappingContext;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRebindComplete, UInputAction*, Action, FKey, NewKey);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAnyKeyPressed, FKey, Key);
@@ -190,15 +194,32 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Rebinding|Events")
 	FOnBindingConflict OnBindingConflict;
 
+	/** Get the active mapping context for a player */
+	UFUNCTION(BlueprintCallable, Category = "Rebinding")
+	void SetMappingContext(UInputMappingContext* Context);
+
+	/** Get the registered mapping context */
+	UFUNCTION(BlueprintPure, Category = "Rebinding")
+	UInputMappingContext* GetMappingContext() const { return ActiveMappingContext; }
+
+	// Allow input processor to access private members
+	friend class FRebindInputProcessor;
+
 private:
 	/** Handle key input during rebinding */
-	void HandleKeyDown(const FKeyEvent& KeyEvent);
+	bool HandleKeyDown(const FKeyEvent& KeyEvent);
 
 	/** Handle gamepad input during rebinding */
-	void HandleGamepadInput(const FKeyEvent& KeyEvent);
+	bool HandleAnalogInput(const FAnalogInputEvent& AnalogEvent);
 
 	/** Apply loaded bindings to the input system */
 	void ApplyLoadedBindings();
+
+	/** Apply a single binding change to the mapping context */
+	void ApplyBindingToMappingContext(UInputAction* Action, FKey OldKey, FKey NewKey);
+
+	/** Get Enhanced Input subsystem for local player */
+	UEnhancedInputLocalPlayerSubsystem* GetEnhancedInputSubsystem() const;
 
 	/** The action currently being rebound */
 	UPROPERTY(Transient)
@@ -217,6 +238,32 @@ private:
 	UPROPERTY(Transient)
 	FInputBindingSaveData SaveData;
 
-	/** Handle for input processor delegate */
-	FDelegateHandle InputProcessorHandle;
+	/** The active mapping context to modify */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputMappingContext> ActiveMappingContext;
+
+	/** Input processor for capturing rebind keys */
+	TSharedPtr<class FRebindInputProcessor> RebindInputProcessor;
+};
+
+/**
+ * Input processor that captures key presses during rebinding
+ */
+class FRebindInputProcessor : public IInputProcessor
+{
+public:
+	FRebindInputProcessor(UInputRebindingManager* InManager) : Manager(InManager) {}
+
+	virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
+
+	virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override;
+	virtual bool HandleKeyUpEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override { return false; }
+	virtual bool HandleAnalogInputEvent(FSlateApplication& SlateApp, const FAnalogInputEvent& InAnalogInputEvent) override;
+	virtual bool HandleMouseMoveEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent) override { return false; }
+	virtual bool HandleMouseButtonDownEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent) override;
+	virtual bool HandleMouseButtonUpEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent) override { return false; }
+	virtual bool HandleMouseWheelOrGestureEvent(FSlateApplication& SlateApp, const FPointerEvent& InWheelEvent, const FPointerEvent* InGestureEvent) override;
+
+private:
+	TWeakObjectPtr<UInputRebindingManager> Manager;
 };

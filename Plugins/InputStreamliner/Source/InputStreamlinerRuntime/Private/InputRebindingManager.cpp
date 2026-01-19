@@ -4,10 +4,19 @@
 #include "InputStreamlinerRuntimeModule.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/InputSettings.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
+#include "EnhancedActionKeyMapping.h"
+#include "Framework/Application/SlateApplication.h"
+#include "JsonObjectConverter.h"
+#include "Misc/FileHelper.h"
 
 void UInputRebindingManager::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+
+	// Create input processor for capturing rebind keys
+	RebindInputProcessor = MakeShareable(new FRebindInputProcessor(this));
 
 	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("InputRebindingManager initialized"));
 
@@ -17,6 +26,13 @@ void UInputRebindingManager::Initialize(FSubsystemCollectionBase& Collection)
 
 void UInputRebindingManager::Deinitialize()
 {
+	// Remove input processor
+	if (RebindInputProcessor.IsValid() && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().UnregisterInputPreProcessor(RebindInputProcessor);
+	}
+	RebindInputProcessor.Reset();
+
 	// Auto-save on shutdown
 	SaveBindings();
 
@@ -34,10 +50,13 @@ void UInputRebindingManager::StartRebinding(UInputAction* Action)
 	PendingRebindAction = Action;
 	PendingBindingIndex = 0;
 
-	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Started rebinding for action: %s"), *Action->GetName());
+	// Register input processor to capture next key press
+	if (RebindInputProcessor.IsValid() && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().RegisterInputPreProcessor(RebindInputProcessor);
+	}
 
-	// In a real implementation, we would hook into the input system here
-	// to capture the next key press. For now, this is a placeholder.
+	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Started rebinding for action: %s"), *Action->GetName());
 }
 
 void UInputRebindingManager::CancelRebinding()
@@ -46,6 +65,12 @@ void UInputRebindingManager::CancelRebinding()
 	{
 		UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Cancelled rebinding for action: %s"),
 			*PendingRebindAction->GetName());
+	}
+
+	// Unregister input processor
+	if (RebindInputProcessor.IsValid() && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().UnregisterInputPreProcessor(RebindInputProcessor);
 	}
 
 	PendingRebindAction = nullptr;
@@ -90,6 +115,10 @@ bool UInputRebindingManager::ApplyBinding(UInputAction* Action, FKey NewKey, int
 		return false;
 	}
 
+	// Get old key for mapping context update
+	TArray<FKey> OldBindings = GetBindingsForAction(Action);
+	FKey OldKey = OldBindings.IsValidIndex(BindingIndex) ? OldBindings[BindingIndex] : EKeys::Invalid;
+
 	// Get or create binding array
 	TArray<FKey>& Bindings = CurrentBindings.FindOrAdd(Action);
 
@@ -101,6 +130,9 @@ bool UInputRebindingManager::ApplyBinding(UInputAction* Action, FKey NewKey, int
 
 	Bindings[BindingIndex] = NewKey;
 
+	// Apply to mapping context
+	ApplyBindingToMappingContext(Action, OldKey, NewKey);
+
 	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Applied binding %s to action %s at index %d"),
 		*NewKey.ToString(), *Action->GetName(), BindingIndex);
 
@@ -109,6 +141,11 @@ bool UInputRebindingManager::ApplyBinding(UInputAction* Action, FKey NewKey, int
 	// Clear rebinding state
 	if (PendingRebindAction == Action)
 	{
+		// Unregister input processor
+		if (RebindInputProcessor.IsValid() && FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().UnregisterInputPreProcessor(RebindInputProcessor);
+		}
 		PendingRebindAction = nullptr;
 	}
 
@@ -128,7 +165,12 @@ bool UInputRebindingManager::RemoveBinding(UInputAction* Action, int32 BindingIn
 		return false;
 	}
 
+	FKey OldKey = (*Bindings)[BindingIndex];
 	(*Bindings)[BindingIndex] = EKeys::Invalid;
+
+	// Update mapping context
+	ApplyBindingToMappingContext(Action, OldKey, EKeys::Invalid);
+
 	return true;
 }
 
@@ -171,12 +213,14 @@ void UInputRebindingManager::SwapBindings(UInputAction* ActionA, UInputAction* A
 	{
 		// Remove from B
 		BindingsB[IndexB] = EKeys::Invalid;
+		ApplyBindingToMappingContext(ActionB, Key, EKeys::Invalid);
 	}
 
 	// Add to A
 	if (IndexA == INDEX_NONE)
 	{
 		BindingsA.Add(Key);
+		ApplyBindingToMappingContext(ActionA, EKeys::Invalid, Key);
 	}
 
 	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Swapped binding %s from %s to %s"),
@@ -190,10 +234,29 @@ void UInputRebindingManager::ResetToDefault(UInputAction* Action)
 		return;
 	}
 
+	// Get current bindings to remove from mapping context
+	TArray<FKey> CurrentKeys = GetBindingsForAction(Action);
+
 	const TArray<FKey>* Defaults = DefaultBindings.Find(Action);
 	if (Defaults)
 	{
 		CurrentBindings.Add(Action, *Defaults);
+
+		// Update mapping context - remove old, add defaults
+		for (const FKey& OldKey : CurrentKeys)
+		{
+			if (OldKey.IsValid() && !Defaults->Contains(OldKey))
+			{
+				ApplyBindingToMappingContext(Action, OldKey, EKeys::Invalid);
+			}
+		}
+		for (const FKey& NewKey : *Defaults)
+		{
+			if (NewKey.IsValid() && !CurrentKeys.Contains(NewKey))
+			{
+				ApplyBindingToMappingContext(Action, EKeys::Invalid, NewKey);
+			}
+		}
 	}
 	else
 	{
@@ -217,6 +280,9 @@ void UInputRebindingManager::ResetAllToDefaults()
 	SaveData.GamepadSensitivity = 1.0f;
 	SaveData.GyroSensitivity = 1.0f;
 	SaveData.bInvertY = false;
+
+	// Reapply all bindings to mapping context
+	ApplyLoadedBindings();
 
 	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Reset all bindings to defaults"));
 }
@@ -259,16 +325,27 @@ bool UInputRebindingManager::SaveBindings()
 		SaveData.Bindings.Add(BindingSave);
 	}
 
-	// Save to slot
-	// Note: In a real implementation, you would use USaveGame
-	// For now, we'll use a simple JSON file approach
-
-	FString SavePath = FPaths::ProjectSavedDir() / TEXT("InputStreamliner") / TEXT("Bindings.json");
-
+	// Serialize to JSON
 	FString JsonString;
-	// TODO: Serialize SaveData to JSON and write to file
+	if (!FJsonObjectConverter::UStructToJsonObjectString(SaveData, JsonString))
+	{
+		UE_LOG(LogInputStreamlinerRuntime, Error, TEXT("Failed to serialize bindings to JSON"));
+		return false;
+	}
 
-	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Bindings saved"));
+	// Ensure directory exists
+	FString SaveDir = FPaths::ProjectSavedDir() / TEXT("InputStreamliner");
+	IFileManager::Get().MakeDirectory(*SaveDir, true);
+
+	// Write to file
+	FString SavePath = SaveDir / TEXT("Bindings.json");
+	if (!FFileHelper::SaveStringToFile(JsonString, *SavePath))
+	{
+		UE_LOG(LogInputStreamlinerRuntime, Error, TEXT("Failed to save bindings to: %s"), *SavePath);
+		return false;
+	}
+
+	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Bindings saved to: %s"), *SavePath);
 	return true;
 }
 
@@ -278,15 +355,29 @@ bool UInputRebindingManager::LoadBindings()
 
 	if (!FPaths::FileExists(SavePath))
 	{
-		UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("No saved bindings found"));
+		UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("No saved bindings found at: %s"), *SavePath);
 		return false;
 	}
 
-	// TODO: Load and deserialize JSON
+	// Read file
+	FString JsonString;
+	if (!FFileHelper::LoadFileToString(JsonString, *SavePath))
+	{
+		UE_LOG(LogInputStreamlinerRuntime, Error, TEXT("Failed to load bindings from: %s"), *SavePath);
+		return false;
+	}
 
-	ApplyLoadedBindings();
+	// Deserialize JSON
+	FInputBindingSaveData LoadedData;
+	if (!FJsonObjectConverter::JsonObjectStringToUStruct(JsonString, &LoadedData))
+	{
+		UE_LOG(LogInputStreamlinerRuntime, Error, TEXT("Failed to parse bindings JSON"));
+		return false;
+	}
 
-	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Bindings loaded"));
+	SaveData = LoadedData;
+
+	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Bindings loaded from: %s"), *SavePath);
 	return true;
 }
 
@@ -299,8 +390,20 @@ void UInputRebindingManager::RegisterAction(UInputAction* Action, const TArray<F
 
 	DefaultBindings.Add(Action, Bindings);
 
-	// If no custom binding exists, use default
-	if (!CurrentBindings.Contains(Action))
+	// Check if we have saved bindings for this action
+	bool bFoundSaved = false;
+	for (const FActionBindingSave& Saved : SaveData.Bindings)
+	{
+		if (Saved.ActionName == Action->GetFName())
+		{
+			CurrentBindings.Add(Action, Saved.Keys);
+			bFoundSaved = true;
+			break;
+		}
+	}
+
+	// If no saved binding exists, use default
+	if (!bFoundSaved)
 	{
 		CurrentBindings.Add(Action, Bindings);
 	}
@@ -309,32 +412,234 @@ void UInputRebindingManager::RegisterAction(UInputAction* Action, const TArray<F
 		*Action->GetName(), Bindings.Num());
 }
 
-void UInputRebindingManager::HandleKeyDown(const FKeyEvent& KeyEvent)
+void UInputRebindingManager::SetMappingContext(UInputMappingContext* Context)
 {
-	FKey Key = KeyEvent.GetKey();
-	OnAnyKeyPressed.Broadcast(Key);
+	ActiveMappingContext = Context;
 
-	if (PendingRebindAction)
+	if (Context)
 	{
-		// Ignore certain keys
-		if (Key == EKeys::Escape)
-		{
-			CancelRebinding();
-			return;
-		}
-
-		ApplyBinding(PendingRebindAction, Key, PendingBindingIndex);
+		// Apply any loaded custom bindings
+		ApplyLoadedBindings();
 	}
 }
 
-void UInputRebindingManager::HandleGamepadInput(const FKeyEvent& KeyEvent)
+bool UInputRebindingManager::HandleKeyDown(const FKeyEvent& KeyEvent)
 {
-	// Same handling as keyboard for now
-	HandleKeyDown(KeyEvent);
+	if (!PendingRebindAction)
+	{
+		return false;
+	}
+
+	FKey Key = KeyEvent.GetKey();
+	OnAnyKeyPressed.Broadcast(Key);
+
+	// Ignore certain keys
+	if (Key == EKeys::Escape)
+	{
+		CancelRebinding();
+		return true;
+	}
+
+	// Ignore modifier keys by themselves
+	if (Key == EKeys::LeftShift || Key == EKeys::RightShift ||
+		Key == EKeys::LeftControl || Key == EKeys::RightControl ||
+		Key == EKeys::LeftAlt || Key == EKeys::RightAlt ||
+		Key == EKeys::LeftCommand || Key == EKeys::RightCommand)
+	{
+		return true; // Consume but don't apply
+	}
+
+	ApplyBinding(PendingRebindAction, Key, PendingBindingIndex);
+	return true; // Consume the input
+}
+
+bool UInputRebindingManager::HandleAnalogInput(const FAnalogInputEvent& AnalogEvent)
+{
+	if (!PendingRebindAction)
+	{
+		return false;
+	}
+
+	// Only capture significant analog input
+	if (FMath::Abs(AnalogEvent.GetAnalogValue()) < 0.5f)
+	{
+		return false;
+	}
+
+	FKey Key = AnalogEvent.GetKey();
+	OnAnyKeyPressed.Broadcast(Key);
+
+	ApplyBinding(PendingRebindAction, Key, PendingBindingIndex);
+	return true;
 }
 
 void UInputRebindingManager::ApplyLoadedBindings()
 {
-	// TODO: Apply bindings to the actual Enhanced Input Mapping Contexts
-	// This requires runtime modification of the mapping contexts
+	if (!ActiveMappingContext)
+	{
+		return;
+	}
+
+	// Get the Enhanced Input subsystem
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = GetEnhancedInputSubsystem();
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	// For each registered action, update the mapping context
+	for (const auto& Pair : CurrentBindings)
+	{
+		UInputAction* Action = Pair.Key;
+		const TArray<FKey>& CustomKeys = Pair.Value;
+		const TArray<FKey>* DefaultKeys = DefaultBindings.Find(Action);
+
+		if (!Action || !DefaultKeys)
+		{
+			continue;
+		}
+
+		// Check if bindings differ from defaults
+		for (int32 i = 0; i < CustomKeys.Num(); i++)
+		{
+			FKey CustomKey = CustomKeys[i];
+			FKey DefaultKey = DefaultKeys->IsValidIndex(i) ? (*DefaultKeys)[i] : EKeys::Invalid;
+
+			if (CustomKey != DefaultKey)
+			{
+				ApplyBindingToMappingContext(Action, DefaultKey, CustomKey);
+			}
+		}
+	}
+
+	UE_LOG(LogInputStreamlinerRuntime, Log, TEXT("Applied loaded bindings to mapping context"));
+}
+
+void UInputRebindingManager::ApplyBindingToMappingContext(UInputAction* Action, FKey OldKey, FKey NewKey)
+{
+	if (!ActiveMappingContext || !Action)
+	{
+		return;
+	}
+
+	// Get mutable mappings
+	TArray<FEnhancedActionKeyMapping>& Mappings = const_cast<TArray<FEnhancedActionKeyMapping>&>(ActiveMappingContext->GetMappings());
+
+	// Find and update the mapping
+	bool bFoundMapping = false;
+	for (FEnhancedActionKeyMapping& Mapping : Mappings)
+	{
+		if (Mapping.Action == Action && Mapping.Key == OldKey)
+		{
+			if (NewKey.IsValid())
+			{
+				Mapping.Key = NewKey;
+				UE_LOG(LogInputStreamlinerRuntime, Verbose, TEXT("Updated mapping: %s -> %s for action %s"),
+					*OldKey.ToString(), *NewKey.ToString(), *Action->GetName());
+			}
+			else
+			{
+				// Remove the mapping by setting to invalid (actual removal is complex)
+				Mapping.Key = EKeys::Invalid;
+			}
+			bFoundMapping = true;
+			break;
+		}
+	}
+
+	// If adding a new binding and no existing mapping found
+	if (!bFoundMapping && NewKey.IsValid() && !OldKey.IsValid())
+	{
+		// Add new mapping
+		FEnhancedActionKeyMapping NewMapping;
+		NewMapping.Action = Action;
+		NewMapping.Key = NewKey;
+		Mappings.Add(NewMapping);
+		UE_LOG(LogInputStreamlinerRuntime, Verbose, TEXT("Added new mapping: %s for action %s"),
+			*NewKey.ToString(), *Action->GetName());
+	}
+
+	// Request rebuild of the input system
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = GetEnhancedInputSubsystem();
+	if (Subsystem)
+	{
+		// Force rebind by removing and re-adding the context
+		int32 Priority = 0;
+		Subsystem->RemoveMappingContext(ActiveMappingContext);
+		Subsystem->AddMappingContext(ActiveMappingContext, Priority);
+	}
+}
+
+UEnhancedInputLocalPlayerSubsystem* UInputRebindingManager::GetEnhancedInputSubsystem() const
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	if (!GameInstance)
+	{
+		return nullptr;
+	}
+
+	APlayerController* PC = GameInstance->GetFirstLocalPlayerController();
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
+	if (!LocalPlayer)
+	{
+		return nullptr;
+	}
+
+	return LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+}
+
+// ============== FRebindInputProcessor Implementation ==============
+
+bool FRebindInputProcessor::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent)
+{
+	if (Manager.IsValid() && Manager->IsRebindingInProgress())
+	{
+		return Manager->HandleKeyDown(InKeyEvent);
+	}
+	return false;
+}
+
+bool FRebindInputProcessor::HandleAnalogInputEvent(FSlateApplication& SlateApp, const FAnalogInputEvent& InAnalogInputEvent)
+{
+	if (Manager.IsValid() && Manager->IsRebindingInProgress())
+	{
+		return Manager->HandleAnalogInput(InAnalogInputEvent);
+	}
+	return false;
+}
+
+bool FRebindInputProcessor::HandleMouseButtonDownEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent)
+{
+	if (Manager.IsValid() && Manager->IsRebindingInProgress())
+	{
+		FKey Key = MouseEvent.GetEffectingButton();
+		Manager->OnAnyKeyPressed.Broadcast(Key);
+
+		// Don't bind left mouse click (used for UI interaction)
+		if (Key == EKeys::LeftMouseButton)
+		{
+			return false;
+		}
+
+		Manager->ApplyBinding(Manager->GetPendingRebindAction(), Key, 0);
+		return true;
+	}
+	return false;
+}
+
+bool FRebindInputProcessor::HandleMouseWheelOrGestureEvent(FSlateApplication& SlateApp, const FPointerEvent& InWheelEvent, const FPointerEvent* InGestureEvent)
+{
+	if (Manager.IsValid() && Manager->IsRebindingInProgress())
+	{
+		FKey Key = InWheelEvent.GetWheelDelta() > 0 ? EKeys::MouseScrollUp : EKeys::MouseScrollDown;
+		Manager->OnAnyKeyPressed.Broadcast(Key);
+		Manager->ApplyBinding(Manager->GetPendingRebindAction(), Key, 0);
+		return true;
+	}
+	return false;
 }
