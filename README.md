@@ -2,6 +2,20 @@
 
 An Unreal Engine 5.7 editor plugin that dramatically simplifies multiplatform input configuration using AI-powered natural language understanding.
 
+## Case Study
+
+**Problem:** Unreal Enhanced Input is powerful but tedious to configure across keyboard, mouse, gamepad, Mac, iOS, and Android. A small prototype can require many Input Actions, Mapping Contexts, modifiers, triggers, platform-specific mappings, and rebinding rules before gameplay input feels complete.
+
+**What I built:** Input Streamliner is an Unreal Engine editor plugin that turns natural-language control descriptions into complete Enhanced Input assets, platform mapping contexts, mobile touch controls, and a runtime rebinding system.
+
+**Architecture:** The editor plugin sends a structured prompt to a local Ollama model, parses the JSON intent into action and binding definitions, generates UE assets under standard `/Game/Input` paths, and includes a runtime module for player rebinding and persistence.
+
+**Technical depth:** The project includes an editor module, runtime module, Slate/editor utility UI, local model picker, JSON parsing/sanitization, asset generation, dead-zone/modifier/trigger handling, conflict-aware rebinding, and persistence to `Saved/InputStreamliner/Bindings.json`.
+
+**Proof:** The README includes install steps, example prompts, generated asset conventions, runtime C++/Blueprint usage, troubleshooting, and the plugin source layout. Additional design docs live under `docs/`.
+
+**Tradeoffs:** The plugin uses local Ollama instead of a hosted model so game input descriptions and project schemas stay on the developer machine. That requires users to manage local models, but avoids API keys and cloud dependency.
+
 ## Overview
 
 Input Streamliner allows developers to generate complete input systems—including Enhanced Input Actions, Input Mapping Contexts, platform-specific bindings, and mobile touch controls—in minutes rather than hours.
